@@ -5,7 +5,6 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
-import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
 import joblib
@@ -162,9 +161,22 @@ def render_tab_content(active_tab):
     [
         Input('speed-range', 'value'),
         Input('bales-range', 'value'),
+        Input('data-submit-output', 'children')  # Added to update when new data is submitted
     ]
 )
-def update_scatter(speed_range, bales_range):
+def update_scatter(speed_range, bales_range, _):
+    # Reload data to include any new submissions
+    data = load_data()
+    data = data.rename(columns={
+        'Yield (Bales Per Hectare)': 'BalesPerHectare',
+        'Max Wrap and Ejection Process (km/h)': 'MaxWrapEjectionSpeed',
+        'Max for Row Units (km/h)': 'PickerSpeed'
+    })
+    data['BalesPerHectare'] = pd.to_numeric(data['BalesPerHectare'], errors='coerce')
+    data['MaxWrapEjectionSpeed'] = pd.to_numeric(data['MaxWrapEjectionSpeed'], errors='coerce')
+    data['PickerSpeed'] = pd.to_numeric(data['PickerSpeed'], errors='coerce')
+    data = data.dropna(subset=['BalesPerHectare', 'MaxWrapEjectionSpeed', 'PickerSpeed'])
+
     filtered_data = data[
         (data['PickerSpeed'] >= speed_range[0]) &
         (data['PickerSpeed'] <= speed_range[1]) &
@@ -204,10 +216,10 @@ def update_scatter(speed_range, bales_range):
         X = filtered_data[['BalesPerHectare']]
         y = filtered_data[variable]
         model.fit(X, y)
-        trend_x = np.linspace(X.min(), X.max(), 100)
-        trend_y = model.predict(trend_x)
+        trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100)
+        trend_y = model.predict(trend_x.reshape(-1, 1))
         fig.add_trace(go.Scatter(
-            x=trend_x.flatten(),
+            x=trend_x,
             y=trend_y,
             mode='lines',
             name=f'{name} Trend Line',
@@ -241,20 +253,28 @@ def add_data_to_csv(n_clicks, picker_speed, max_wrap_ejection_speed, bales_per_h
 
             # Create a new row of data
             new_data = pd.DataFrame({
-                'BalesPerHectare': [bales_per_hectare],
-                'MaxWrapEjectionSpeed': [max_wrap_ejection_speed],
-                'PickerSpeed': [picker_speed],
+                'Yield (Bales Per Hectare)': [bales_per_hectare],
+                'Max Wrap and Ejection Process (km/h)': [max_wrap_ejection_speed],
+                'Max for Row Units (km/h)': [picker_speed],
             })
 
             # Append the new data to the CSV file
             new_data.to_csv('user_data.csv', mode='a', header=False, index=False)
 
-            # Update the global data variable
-            global data
-            data = pd.concat([data, new_data], ignore_index=True)
-
             # Retrain the model with the new data
-            train_model()
+            global data, reg_model
+            data = load_data()
+            data = data.rename(columns={
+                'Yield (Bales Per Hectare)': 'BalesPerHectare',
+                'Max Wrap and Ejection Process (km/h)': 'MaxWrapEjectionSpeed',
+                'Max for Row Units (km/h)': 'PickerSpeed'
+            })
+            data['BalesPerHectare'] = pd.to_numeric(data['BalesPerHectare'], errors='coerce')
+            data['MaxWrapEjectionSpeed'] = pd.to_numeric(data['MaxWrapEjectionSpeed'], errors='coerce')
+            data['PickerSpeed'] = pd.to_numeric(data['PickerSpeed'], errors='coerce')
+            data = data.dropna(subset=['BalesPerHectare', 'MaxWrapEjectionSpeed', 'PickerSpeed'])
+
+            reg_model = train_model()
 
             return "Data submitted successfully."
         except Exception as e:
@@ -264,9 +284,24 @@ def add_data_to_csv(n_clicks, picker_speed, max_wrap_ejection_speed, bales_per_h
 # Callback to update histogram
 @app.callback(
     Output('histogram-plot', 'figure'),
-    []
+    [Input('tabs', 'active_tab'), Input('data-submit-output', 'children')]
 )
-def update_histogram():
+def update_histogram(active_tab, _):
+    if active_tab != 'histogram-tab':
+        raise dash.exceptions.PreventUpdate
+
+    # Reload data to include any new submissions
+    data = load_data()
+    data = data.rename(columns={
+        'Yield (Bales Per Hectare)': 'BalesPerHectare',
+        'Max Wrap and Ejection Process (km/h)': 'MaxWrapEjectionSpeed',
+        'Max for Row Units (km/h)': 'PickerSpeed'
+    })
+    data['BalesPerHectare'] = pd.to_numeric(data['BalesPerHectare'], errors='coerce')
+    data['MaxWrapEjectionSpeed'] = pd.to_numeric(data['MaxWrapEjectionSpeed'], errors='coerce')
+    data['PickerSpeed'] = pd.to_numeric(data['PickerSpeed'], errors='coerce')
+    data = data.dropna(subset=['BalesPerHectare', 'MaxWrapEjectionSpeed', 'PickerSpeed'])
+
     fig = go.Figure()
     # Plot histograms for available speed variables
     if 'PickerSpeed' in data.columns and data['PickerSpeed'].notnull().any():
@@ -303,8 +338,11 @@ def update_histogram():
     ]
 )
 def predict_bale_yield(speed_value, wrap_ejection_speed):
+    # Reload the model in case it has been retrained
+    reg_model = joblib.load('reg_model.pkl')
     predicted_yield = reg_model.predict([[speed_value, wrap_ejection_speed]])[0]
     return html.Div([html.H5(f"Predicted Yield (Bales per Hectare): {predicted_yield:.2f}")])
 
 if __name__ == '__main__':
     app.run_server(debug=True)
+
