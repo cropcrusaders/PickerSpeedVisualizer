@@ -7,6 +7,7 @@ from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures  # Import PolynomialFeatures
 from sklearn.multioutput import MultiOutputRegressor
 import joblib
 
@@ -141,13 +142,13 @@ def render_tab_content(active_tab):
     else:
         return html.Div("No tab selected")
 
-# Callback to update the scatter plot
+# Callback to update the scatter plot with polynomial trend lines
 @app.callback(
     Output('scatter-plot', 'figure'),
     [
         Input('speed-range', 'value'),
         Input('bales-range', 'value'),
-        Input('data-submit-output', 'children')  # Added to update when new data is submitted
+        Input('data-submit-output', 'children')  # Trigger update when new data is submitted
     ]
 )
 def update_scatter(speed_range, bales_range, _):
@@ -191,22 +192,31 @@ def update_scatter(speed_range, bales_range, _):
         marker=dict(color='red'),
     ))
 
-    # Compute trend lines for each variable
+    # Compute polynomial trend lines for each variable
     trend_variables = {
         'Picker Speed': ('PickerSpeed', 'blue'),
         'Max Wrap and Ejection Speed': ('MaxWrapEjectionSpeed', 'red'),
     }
 
+    degree = 2  # Degree of the polynomial regression
+
     for name, (variable, color) in trend_variables.items():
-        model = LinearRegression()
         X = filtered_data[['BalesPerHectare']]
         y = filtered_data[variable]
-        if len(X) > 1:
-            model.fit(X, y)
-            trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100)
-            trend_y = model.predict(trend_x.reshape(-1, 1))
+        if len(X) > degree:  # Ensure enough data points
+            # Fit polynomial regression
+            poly_features = PolynomialFeatures(degree=degree)
+            X_poly = poly_features.fit_transform(X)
+            model = LinearRegression()
+            model.fit(X_poly, y)
+
+            # Generate trend line
+            trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100).reshape(-1, 1)
+            trend_x_poly = poly_features.transform(trend_x)
+            trend_y = model.predict(trend_x_poly)
+
             fig.add_trace(go.Scatter(
-                x=trend_x,
+                x=trend_x.flatten(),
                 y=trend_y,
                 mode='lines',
                 name=f'{name} Trend Line',
