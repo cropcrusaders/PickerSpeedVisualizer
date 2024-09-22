@@ -6,6 +6,7 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.express as px
+import plotly.graph_objects as go  # Import graph_objects
 from sklearn.linear_model import LinearRegression
 import joblib
 import base64
@@ -19,6 +20,10 @@ def load_or_generate_data():
             data = pd.read_csv('picker_data.csv')
             if data.empty or data.shape[1] == 0:
                 raise ValueError("Empty or corrupt CSV file")
+            if 'MaxBaleEjectionSpeed' not in data.columns:
+                print("Adding MaxBaleEjectionSpeed to existing data.")
+                data['MaxBaleEjectionSpeed'] = data['PickerSpeed'] * np.random.uniform(1.1, 1.3, size=len(data))
+                data.to_csv('picker_data.csv', index=False)
         except (pd.errors.EmptyDataError, ValueError):
             print("The existing 'picker_data.csv' is empty or corrupt. Generating new data.")
             data = generate_synthetic_data()
@@ -40,6 +45,8 @@ def generate_synthetic_data():
     data['BalesPerHectare'] += (
         (data['PickerSpeed'] - 5) * 0.5 + np.random.normal(0, 0.1, num_samples)
     )
+    # Add MaxBaleEjectionSpeed
+    data['MaxBaleEjectionSpeed'] = data['PickerSpeed'] * np.random.uniform(1.1, 1.3, size=num_samples)
     return data
 
 data = load_or_generate_data()
@@ -182,12 +189,18 @@ def update_scatter(speed_range, bales_range, n_intervals):
     data = pd.read_csv('picker_data.csv')  # Reload data to ensure new data is reflected
     data['Date'] = pd.to_datetime(data['Date'])
 
+    # Append a new data point
     new_data_point = {
         'Date': data['Date'].max() + pd.Timedelta(hours=1),
         'PickerSpeed': np.random.uniform(4.0, 6.0),
         'BalesPerHectare': np.random.uniform(2.0, 4.0),
     }
+    new_data_point['BalesPerHectare'] += (new_data_point['PickerSpeed'] - 5) * 0.5 + np.random.normal(0, 0.1)
+    new_data_point['MaxBaleEjectionSpeed'] = new_data_point['PickerSpeed'] * np.random.uniform(1.1, 1.3)
     data = pd.concat([data, pd.DataFrame([new_data_point])], ignore_index=True)
+
+    # Save the updated data
+    data.to_csv('picker_data.csv', index=False)
 
     filtered_data = data[
         (data['PickerSpeed'] >= speed_range[0]) &
@@ -196,13 +209,43 @@ def update_scatter(speed_range, bales_range, n_intervals):
         (data['BalesPerHectare'] <= bales_range[1])
     ]
 
-    fig = px.scatter(
-        filtered_data,
-        x='BalesPerHectare',
-        y='PickerSpeed',
-        labels={'BalesPerHectare': 'Bales per Hectare', 'PickerSpeed': 'Picker Speed (km/h)'},
-        title='Picker Speed vs. Bales per Hectare',
-        hover_data=['Date'],
+    # Create the figure with two traces
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=filtered_data['BalesPerHectare'],
+        y=filtered_data['PickerSpeed'],
+        mode='markers',
+        name='Picker Speed',
+        marker=dict(color='blue'),
+        hovertext=filtered_data['Date'].astype(str)
+    ))
+    fig.add_trace(go.Scatter(
+        x=filtered_data['BalesPerHectare'],
+        y=filtered_data['MaxBaleEjectionSpeed'],
+        mode='markers',
+        name='Max Bale Ejection Speed',
+        marker=dict(color='red'),
+        hovertext=filtered_data['Date'].astype(str)
+    ))
+
+    # Add average lines
+    avg_picker_speed = filtered_data['PickerSpeed'].mean()
+    avg_max_bale_ejection_speed = filtered_data['MaxBaleEjectionSpeed'].mean()
+    avg_bales_per_hectare = filtered_data['BalesPerHectare'].mean()
+
+    fig.add_hline(y=avg_picker_speed, line_dash="dash", line_color='blue',
+                  annotation_text='Avg Picker Speed', annotation_position="bottom right")
+    fig.add_hline(y=avg_max_bale_ejection_speed, line_dash="dash", line_color='red',
+                  annotation_text='Avg Max Bale Ejection Speed', annotation_position="top right")
+    fig.add_vline(x=avg_bales_per_hectare, line_dash="dash", line_color='green',
+                  annotation_text='Avg Bales per Hectare', annotation_position="top left")
+
+    fig.update_layout(
+        title='Picker Speed vs. Bales per Hectare with Max Bale Ejection Speed',
+        xaxis_title='Bales per Hectare',
+        yaxis_title='Speed (km/h)',
+        hovermode='closest',
+        legend=dict(x=0.01, y=0.99)
     )
     fig.update_xaxes(dtick=0.5)
     fig.update_yaxes(dtick=0.2)
@@ -225,11 +268,15 @@ def add_data_to_csv(n_clicks, picker_speed, bales_per_hectare, date):
             # Convert the input date to datetime
             parsed_date = pd.to_datetime(date)
 
+            # Calculate MaxBaleEjectionSpeed
+            max_bale_ejection_speed = picker_speed * np.random.uniform(1.1, 1.3)
+
             # Create a new row of data
             new_data = pd.DataFrame({
                 'Date': [parsed_date],
                 'PickerSpeed': [picker_speed],
-                'BalesPerHectare': [bales_per_hectare]
+                'BalesPerHectare': [bales_per_hectare],
+                'MaxBaleEjectionSpeed': [max_bale_ejection_speed]
             })
 
             # Append the new data to the CSV file
@@ -247,8 +294,28 @@ def add_data_to_csv(n_clicks, picker_speed, bales_per_hectare, date):
 )
 def update_histogram(n_intervals):
     data = pd.read_csv('picker_data.csv')
-    fig = px.histogram(data, x='PickerSpeed', nbins=20)
-    fig.update_layout(title='Distribution of Picker Speeds')
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=data['PickerSpeed'],
+        nbinsx=20,
+        name='Picker Speed',
+        marker_color='blue',
+        opacity=0.75
+    ))
+    fig.add_trace(go.Histogram(
+        x=data['MaxBaleEjectionSpeed'],
+        nbinsx=20,
+        name='Max Bale Ejection Speed',
+        marker_color='red',
+        opacity=0.75
+    ))
+    fig.update_layout(
+        barmode='overlay',
+        title='Distribution of Speeds',
+        xaxis_title='Speed (km/h)',
+        yaxis_title='Count',
+        legend=dict(x=0.7, y=0.95)
+    )
     return fig
 
 # Callback to update heatmap
