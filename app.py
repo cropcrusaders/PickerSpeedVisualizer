@@ -228,17 +228,33 @@ def update_scatter(speed_range, bales_range, n_intervals):
         hovertext=filtered_data['Date'].astype(str)
     ))
 
-    # Add average lines
-    avg_picker_speed = filtered_data['PickerSpeed'].mean()
-    avg_max_bale_ejection_speed = filtered_data['MaxBaleEjectionSpeed'].mean()
-    avg_bales_per_hectare = filtered_data['BalesPerHectare'].mean()
+    # Compute trend lines (lines of best fit)
+    # For Picker Speed
+    ps_model = LinearRegression()
+    ps_model.fit(filtered_data[['BalesPerHectare']], filtered_data['PickerSpeed'])
+    ps_trend_x = np.linspace(filtered_data['BalesPerHectare'].min(), filtered_data['BalesPerHectare'].max(), 100)
+    ps_trend_y = ps_model.predict(ps_trend_x.reshape(-1, 1))
 
-    fig.add_hline(y=avg_picker_speed, line_dash="dash", line_color='blue',
-                  annotation_text='Avg Picker Speed', annotation_position="bottom right")
-    fig.add_hline(y=avg_max_bale_ejection_speed, line_dash="dash", line_color='red',
-                  annotation_text='Avg Max Bale Ejection Speed', annotation_position="top right")
-    fig.add_vline(x=avg_bales_per_hectare, line_dash="dash", line_color='green',
-                  annotation_text='Avg Bales per Hectare', annotation_position="top left")
+    # For Max Bale Ejection Speed
+    mbs_model = LinearRegression()
+    mbs_model.fit(filtered_data[['BalesPerHectare']], filtered_data['MaxBaleEjectionSpeed'])
+    mbs_trend_y = mbs_model.predict(ps_trend_x.reshape(-1, 1))
+
+    # Add trend lines to the figure
+    fig.add_trace(go.Scatter(
+        x=ps_trend_x,
+        y=ps_trend_y,
+        mode='lines',
+        name='Picker Speed Trend Line',
+        line=dict(color='blue', dash='dash')
+    ))
+    fig.add_trace(go.Scatter(
+        x=ps_trend_x,
+        y=mbs_trend_y,
+        mode='lines',
+        name='Max Bale Ejection Speed Trend Line',
+        line=dict(color='red', dash='dash')
+    ))
 
     fig.update_layout(
         title='Picker Speed vs. Bales per Hectare with Max Bale Ejection Speed',
