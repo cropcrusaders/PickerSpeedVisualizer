@@ -211,12 +211,13 @@ def update_scatter(speed_range, bales_range, _):
             model.fit(X_poly, y)
 
             # Generate trend line
-            trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100).reshape(-1, 1)
+            trend_x_values = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100)
+            trend_x = pd.DataFrame({'BalesPerHectare': trend_x_values})
             trend_x_poly = poly_features.transform(trend_x)
             trend_y = model.predict(trend_x_poly)
 
             fig.add_trace(go.Scatter(
-                x=trend_x.flatten(),
+                x=trend_x['BalesPerHectare'],
                 y=trend_y,
                 mode='lines',
                 name=f'{name} Trend Line',
@@ -336,7 +337,8 @@ def update_histogram(active_tab, _):
 def predict_speeds(yield_value):
     # Reload the model in case it has been retrained
     reg_model = joblib.load('reg_model.pkl')
-    predicted_speeds = reg_model.predict([[yield_value]])[0]
+    input_df = pd.DataFrame({'BalesPerHectare': [yield_value]})
+    predicted_speeds = reg_model.predict(input_df)[0]
     picker_speed = predicted_speeds[0]
     max_wrap_ejection_speed = predicted_speeds[1]
     return html.Div([
