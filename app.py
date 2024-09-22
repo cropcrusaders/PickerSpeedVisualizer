@@ -49,19 +49,26 @@ data['Date'] = pd.to_datetime(data['Date'])
 # Load or train model
 def load_or_train_model():
     if os.path.exists('reg_model.pkl'):
-        # Load the model
-        reg_model = joblib.load('reg_model.pkl')
+        try:
+            reg_model = joblib.load('reg_model.pkl')
+        except (ModuleNotFoundError, EOFError, ImportError):
+            print("Model file is corrupted or incompatible. Retraining the model...")
+            reg_model = train_and_save_model()
     else:
-        # Prepare features and target
-        X = data[['PickerSpeed']]
-        y = data['BalesPerHectare']
+        reg_model = train_and_save_model()
+    return reg_model
 
-        # Train the model
-        reg_model = LinearRegression()
-        reg_model.fit(X, y)
+def train_and_save_model():
+    # Prepare features and target
+    X = data[['PickerSpeed']]
+    y = data['BalesPerHectare']
 
-        # Save the model
-        joblib.dump(reg_model, 'reg_model.pkl')
+    # Train the model
+    reg_model = LinearRegression()
+    reg_model.fit(X, y)
+
+    # Save the model
+    joblib.dump(reg_model, 'reg_model.pkl')
     return reg_model
 
 reg_model = load_or_train_model()
@@ -84,12 +91,10 @@ app.layout = dbc.Container([
                     round(data['PickerSpeed'].min(), 1),
                     round(data['PickerSpeed'].max(), 1)
                 ],
-                marks={
-                    i: f'{i}' for i in np.arange(
-                        round(data['PickerSpeed'].min(), 1),
-                        round(data['PickerSpeed'].max(), 1) + 0.2, 0.2
-                    )
-                },
+                marks={i: f'{i}' for i in np.arange(
+                    round(data['PickerSpeed'].min(), 1),
+                    round(data['PickerSpeed'].max(), 1) + 0.2, 0.2
+                )},
             ),
             html.Br(),
             html.Label('Bales per Hectare Range'),
@@ -102,12 +107,10 @@ app.layout = dbc.Container([
                     round(data['BalesPerHectare'].min(), 1),
                     round(data['BalesPerHectare'].max(), 1)
                 ],
-                marks={
-                    i: f'{i}' for i in np.arange(
-                        round(data['BalesPerHectare'].min(), 1),
-                        round(data['BalesPerHectare'].max(), 1) + 0.5, 0.5
-                    )
-                },
+                marks={i: f'{i}' for i in np.arange(
+                    round(data['BalesPerHectare'].min(), 1),
+                    round(data['BalesPerHectare'].max(), 1) + 0.5, 0.5
+                )},
             ),
             html.Br(),
             html.H4("Predict Bale Yield"),
@@ -122,26 +125,15 @@ app.layout = dbc.Container([
             ),
             html.Div(id='prediction-output'),
             html.Br(),
-            html.H4("Upload Data"),
-            dcc.Upload(
-                id='upload-data',
-                children=html.Div([
-                    'Drag and Drop or ',
-                    html.A('Select Files')
-                ]),
-                style={
-                    'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
-                    'borderWidth': '1px',
-                    'borderStyle': 'dashed',
-                    'borderRadius': '5px',
-                    'textAlign': 'center',
-                    'margin': '10px'
-                },
-                multiple=False
-            ),
-            html.Div(id='output-data-upload'),
+            html.H4("Add New Data"),
+            dcc.Input(id='input-picker-speed', type='number', placeholder='Picker Speed (km/h)', min=0, step=0.1),
+            html.Br(),
+            dcc.Input(id='input-bales-per-hectare', type='number', placeholder='Bales per Hectare', min=0, step=0.1),
+            html.Br(),
+            dcc.Input(id='input-date', type='text', placeholder='Date (YYYY-MM-DD HH:MM:SS)'),
+            html.Br(),
+            html.Button('Submit Data', id='submit-data-btn', n_clicks=0),
+            html.Div(id='data-submit-output'),
         ], width=3),
         dbc.Col([
             dbc.Tabs([
@@ -186,9 +178,10 @@ def render_tab_content(active_tab):
     ]
 )
 def update_scatter(speed_range, bales_range, n_intervals):
-    global data  # Declare 'data' as global at the beginning
+    global data
+    data = pd.read_csv('picker_data.csv')  # Reload data to ensure new data is reflected
+    data['Date'] = pd.to_datetime(data['Date'])
 
-    # Simulate real-time data update
     new_data_point = {
         'Date': data['Date'].max() + pd.Timedelta(hours=1),
         'PickerSpeed': np.random.uniform(4.0, 6.0),
@@ -196,7 +189,6 @@ def update_scatter(speed_range, bales_range, n_intervals):
     }
     data = pd.concat([data, pd.DataFrame([new_data_point])], ignore_index=True)
 
-    # Filter data based on slider inputs
     filtered_data = data[
         (data['PickerSpeed'] >= speed_range[0]) &
         (data['PickerSpeed'] <= speed_range[1]) &
@@ -208,10 +200,7 @@ def update_scatter(speed_range, bales_range, n_intervals):
         filtered_data,
         x='BalesPerHectare',
         y='PickerSpeed',
-        labels={
-            'BalesPerHectare': 'Bales per Hectare',
-            'PickerSpeed': 'Picker Speed (km/h)'
-        },
+        labels={'BalesPerHectare': 'Bales per Hectare', 'PickerSpeed': 'Picker Speed (km/h)'},
         title='Picker Speed vs. Bales per Hectare',
         hover_data=['Date'],
     )
@@ -219,12 +208,45 @@ def update_scatter(speed_range, bales_range, n_intervals):
     fig.update_yaxes(dtick=0.2)
     return fig
 
+# Callback to handle form data submission
+@app.callback(
+    Output('data-submit-output', 'children'),
+    Input('submit-data-btn', 'n_clicks'),
+    State('input-picker-speed', 'value'),
+    State('input-bales-per-hectare', 'value'),
+    State('input-date', 'value')
+)
+def add_data_to_csv(n_clicks, picker_speed, bales_per_hectare, date):
+    if n_clicks > 0:
+        try:
+            if picker_speed is None or bales_per_hectare is None or not date:
+                return 'Please provide all inputs (Picker Speed, Bales per Hectare, and Date).'
+
+            # Convert the input date to datetime
+            parsed_date = pd.to_datetime(date)
+
+            # Create a new row of data
+            new_data = pd.DataFrame({
+                'Date': [parsed_date],
+                'PickerSpeed': [picker_speed],
+                'BalesPerHectare': [bales_per_hectare]
+            })
+
+            # Append the new data to the CSV file
+            new_data.to_csv('picker_data.csv', mode='a', header=False, index=False)
+
+            return f"Data submitted successfully: {picker_speed} km/h, {bales_per_hectare} bales/ha on {date}"
+        except Exception as e:
+            return f"Error: {str(e)}"
+    return ''
+
 # Callback to update histogram
 @app.callback(
     Output('histogram-plot', 'figure'),
     [Input('interval-component', 'n_intervals')]
 )
 def update_histogram(n_intervals):
+    data = pd.read_csv('picker_data.csv')
     fig = px.histogram(data, x='PickerSpeed', nbins=20)
     fig.update_layout(title='Distribution of Picker Speeds')
     return fig
@@ -235,6 +257,8 @@ def update_histogram(n_intervals):
     [Input('interval-component', 'n_intervals')]
 )
 def update_heatmap(n_intervals):
+    data = pd.read_csv('picker_data.csv')
+    data['Date'] = pd.to_datetime(data['Date'])
     heatmap_data = data.pivot_table(
         index=data['Date'].dt.date,
         columns=data['Date'].dt.hour,
@@ -255,33 +279,7 @@ def update_heatmap(n_intervals):
 )
 def predict_bale_yield(speed_value):
     predicted_yield = reg_model.predict([[speed_value]])[0]
-    return html.Div([
-        html.H5(f"Predicted Bales per Hectare: {predicted_yield:.2f}")
-    ])
-
-# Callback to handle file uploads
-@app.callback(
-    Output('output-data-upload', 'children'),
-    Input('upload-data', 'contents'),
-    State('upload-data', 'filename')
-)
-def upload_data(contents, filename):
-    if contents is not None:
-        content_type, content_string = contents.split(',')
-        decoded = base64.b64decode(content_string)
-        try:
-            df_uploaded = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
-            if set(['Date', 'PickerSpeed', 'BalesPerHectare']).issubset(df_uploaded.columns):
-                df_uploaded['Date'] = pd.to_datetime(df_uploaded['Date'])
-                global data
-                data = pd.concat([data, df_uploaded], ignore_index=True)
-                return html.Div(['Data uploaded successfully.'])
-            else:
-                return html.Div(['Invalid file format. Please ensure the CSV contains Date, PickerSpeed, and BalesPerHectare columns.'])
-        except Exception as e:
-            return html.Div([f'Error processing file: {str(e)}'])
-    return html.Div()
+    return html.Div([html.H5(f"Predicted Bales per Hectare: {predicted_yield:.2f}")])
 
 if __name__ == '__main__':
     app.run_server(debug=True)
-
