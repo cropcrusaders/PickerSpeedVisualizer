@@ -51,16 +51,14 @@ Setting Up the Virtual Environment
 It's a good practice to use a virtual environment to manage project-specific dependencies.
 On Windows:
 
-bash
+## Navigate into the project directory
+  cd PickerSpeedVisualizer
 
-# Navigate into the project directory
-cd PickerSpeedVisualizer
+## Create a virtual environment named 'venv'
+  python -m venv venv
 
-# Create a virtual environment named 'venv'
-python -m venv venv
-
-# Activate the virtual environment
-venv\Scripts\activate
+## Activate the virtual environment
+  venv\Scripts\activate
 
 On macOS/Linux:
 
@@ -80,7 +78,6 @@ Installing Dependencies
 
 With the virtual environment activated, install the required Python packages using the requirements.txt file provided in the repository.
 
-bash
 
 pip install -r requirements.txt
 
@@ -89,7 +86,6 @@ Running the Application
 
 Now, you're ready to run the application.
 
-bash
 
 python app.py
 
@@ -98,7 +94,6 @@ Accessing the Application
 
 Once the application is running, you should see output similar to:
 
-csharp
 
 Dash is running on http://127.0.0.1:8050/
 
