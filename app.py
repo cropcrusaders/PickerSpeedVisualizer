@@ -8,6 +8,8 @@ import dash_bootstrap_components as dbc
 import plotly.express as px
 from sklearn.linear_model import LinearRegression
 import joblib
+import base64
+import io
 
 # Data preparation
 # Load or generate data
