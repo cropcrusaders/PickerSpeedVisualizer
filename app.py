@@ -25,7 +25,9 @@ else:
     })
 
     # Simulate a relationship between PickerSpeed and BalesPerHectare
-    data['BalesPerHectare'] += (data['PickerSpeed'] - 5) * 0.5 + np.random.normal(0, 0.1, num_samples)
+    data['BalesPerHectare'] += (
+        (data['PickerSpeed'] - 5) * 0.5 + np.random.normal(0, 0.1, num_samples)
+    )
 
     # Save the dataset
     data.to_csv('picker_data.csv', index=False)
@@ -63,9 +65,16 @@ app.layout = dbc.Container([
                 min=round(data['PickerSpeed'].min(), 1),
                 max=round(data['PickerSpeed'].max(), 1),
                 step=0.1,
-                value=[round(data['PickerSpeed'].min(), 1), round(data['PickerSpeed'].max(), 1)],
-                marks={i: f'{i}' for i in np.arange(round(data['PickerSpeed'].min(), 1),
-                                                    round(data['PickerSpeed'].max(), 1) + 0.2, 0.2)},
+                value=[
+                    round(data['PickerSpeed'].min(), 1),
+                    round(data['PickerSpeed'].max(), 1)
+                ],
+                marks={
+                    i: f'{i}' for i in np.arange(
+                        round(data['PickerSpeed'].min(), 1),
+                        round(data['PickerSpeed'].max(), 1) + 0.2, 0.2
+                    )
+                },
             ),
             html.Br(),
             html.Label('Bales per Hectare Range'),
@@ -74,9 +83,16 @@ app.layout = dbc.Container([
                 min=round(data['BalesPerHectare'].min(), 1),
                 max=round(data['BalesPerHectare'].max(), 1),
                 step=0.1,
-                value=[round(data['BalesPerHectare'].min(), 1), round(data['BalesPerHectare'].max(), 1)],
-                marks={i: f'{i}' for i in np.arange(round(data['BalesPerHectare'].min(), 1),
-                                                    round(data['BalesPerHectare'].max(), 1) + 0.5, 0.5)},
+                value=[
+                    round(data['BalesPerHectare'].min(), 1),
+                    round(data['BalesPerHectare'].max(), 1)
+                ],
+                marks={
+                    i: f'{i}' for i in np.arange(
+                        round(data['BalesPerHectare'].min(), 1),
+                        round(data['BalesPerHectare'].max(), 1) + 0.5, 0.5
+                    )
+                },
             ),
             html.Br(),
             html.H4("Predict Bale Yield"),
@@ -102,7 +118,7 @@ app.layout = dbc.Container([
     ]),
     dcc.Interval(
         id='interval-component',
-        interval=5*1000,  # in milliseconds
+        interval=5 * 1000,  # Update every 5 seconds
         n_intervals=0
     ),
 ], fluid=True)
@@ -127,30 +143,39 @@ def render_tab_content(active_tab):
 # Callback to update the scatter plot
 @app.callback(
     Output('scatter-plot', 'figure'),
-    [Input('speed-range', 'value'),
-     Input('bales-range', 'value'),
-     Input('interval-component', 'n_intervals')]
+    [
+        Input('speed-range', 'value'),
+        Input('bales-range', 'value'),
+        Input('interval-component', 'n_intervals')
+    ]
 )
 def update_scatter(speed_range, bales_range, n_intervals):
+    global data  # Declare 'data' as global at the beginning
+
     # Simulate real-time data update
     new_data_point = {
         'Date': data['Date'].max() + pd.Timedelta(hours=1),
         'PickerSpeed': np.random.uniform(4.0, 6.0),
         'BalesPerHectare': np.random.uniform(2.0, 4.0),
     }
-    global data
     data = data.append(new_data_point, ignore_index=True)
 
     # Filter data based on slider inputs
     filtered_data = data[
-        (data['PickerSpeed'] >= speed_range[0]) & (data['PickerSpeed'] <= speed_range[1]) &
-        (data['BalesPerHectare'] >= bales_range[0]) & (data['BalesPerHectare'] <= bales_range[1])
+        (data['PickerSpeed'] >= speed_range[0]) &
+        (data['PickerSpeed'] <= speed_range[1]) &
+        (data['BalesPerHectare'] >= bales_range[0]) &
+        (data['BalesPerHectare'] <= bales_range[1])
     ]
+
     fig = px.scatter(
         filtered_data,
         x='BalesPerHectare',
         y='PickerSpeed',
-        labels={'BalesPerHectare': 'Bales per Hectare', 'PickerSpeed': 'Picker Speed (km/h)'},
+        labels={
+            'BalesPerHectare': 'Bales per Hectare',
+            'PickerSpeed': 'Picker Speed (km/h)'
+        },
         title='Picker Speed vs. Bales per Hectare',
         hover_data=['Date'],
     )
@@ -180,7 +205,10 @@ def update_heatmap(n_intervals):
         values='BalesPerHectare',
         aggfunc='mean'
     )
-    fig = px.imshow(heatmap_data, labels=dict(x="Hour", y="Date", color="Bales per Hectare"))
+    fig = px.imshow(
+        heatmap_data,
+        labels={'x': "Hour", 'y': "Date", 'color': "Bales per Hectare"}
+    )
     fig.update_layout(title='Heatmap of Bale Yields Over Time')
     return fig
 
