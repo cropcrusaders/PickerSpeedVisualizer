@@ -1,55 +1,68 @@
+import os
 import pandas as pd
 import numpy as np
 import dash
 from dash import dcc, html
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.express as px
 from sklearn.linear_model import LinearRegression
 import joblib
-import os
 
 # Data preparation
 # Load or generate data
-if os.path.exists('picker_data.csv'):
-    data = pd.read_csv('picker_data.csv')
-else:
-    # Generate synthetic data
+def load_or_generate_data():
+    if os.path.exists('picker_data.csv'):
+        try:
+            data = pd.read_csv('picker_data.csv')
+            if data.empty or data.shape[1] == 0:
+                raise ValueError("Empty or corrupt CSV file")
+        except (pd.errors.EmptyDataError, ValueError):
+            print("The existing 'picker_data.csv' is empty or corrupt. Generating new data.")
+            data = generate_synthetic_data()
+            data.to_csv('picker_data.csv', index=False)
+    else:
+        data = generate_synthetic_data()
+        data.to_csv('picker_data.csv', index=False)
+    return data
+
+def generate_synthetic_data():
     np.random.seed(42)
     num_samples = 500
-
     data = pd.DataFrame({
         'Date': pd.date_range(start='2023-01-01', periods=num_samples, freq='H'),
         'PickerSpeed': np.random.uniform(4.0, 6.0, size=num_samples),
         'BalesPerHectare': np.random.uniform(2.0, 4.0, size=num_samples),
     })
-
     # Simulate a relationship between PickerSpeed and BalesPerHectare
     data['BalesPerHectare'] += (
         (data['PickerSpeed'] - 5) * 0.5 + np.random.normal(0, 0.1, num_samples)
     )
+    return data
 
-    # Save the dataset
-    data.to_csv('picker_data.csv', index=False)
-
+data = load_or_generate_data()
 data['Date'] = pd.to_datetime(data['Date'])
 
 # Machine learning model
 # Load or train model
-if os.path.exists('reg_model.pkl'):
-    # Load the model
-    reg_model = joblib.load('reg_model.pkl')
-else:
-    # Prepare features and target
-    X = data[['PickerSpeed']]
-    y = data['BalesPerHectare']
+def load_or_train_model():
+    if os.path.exists('reg_model.pkl'):
+        # Load the model
+        reg_model = joblib.load('reg_model.pkl')
+    else:
+        # Prepare features and target
+        X = data[['PickerSpeed']]
+        y = data['BalesPerHectare']
 
-    # Train the model
-    reg_model = LinearRegression()
-    reg_model.fit(X, y)
+        # Train the model
+        reg_model = LinearRegression()
+        reg_model.fit(X, y)
 
-    # Save the model
-    joblib.dump(reg_model, 'reg_model.pkl')
+        # Save the model
+        joblib.dump(reg_model, 'reg_model.pkl')
+    return reg_model
+
+reg_model = load_or_train_model()
 
 # Initialize the app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -106,6 +119,27 @@ app.layout = dbc.Container([
                 step=0.1,
             ),
             html.Div(id='prediction-output'),
+            html.Br(),
+            html.H4("Upload Data"),
+            dcc.Upload(
+                id='upload-data',
+                children=html.Div([
+                    'Drag and Drop or ',
+                    html.A('Select Files')
+                ]),
+                style={
+                    'width': '100%',
+                    'height': '60px',
+                    'lineHeight': '60px',
+                    'borderWidth': '1px',
+                    'borderStyle': 'dashed',
+                    'borderRadius': '5px',
+                    'textAlign': 'center',
+                    'margin': '10px'
+                },
+                multiple=False
+            ),
+            html.Div(id='output-data-upload'),
         ], width=3),
         dbc.Col([
             dbc.Tabs([
@@ -158,7 +192,7 @@ def update_scatter(speed_range, bales_range, n_intervals):
         'PickerSpeed': np.random.uniform(4.0, 6.0),
         'BalesPerHectare': np.random.uniform(2.0, 4.0),
     }
-    data = data.append(new_data_point, ignore_index=True)
+    data = pd.concat([data, pd.DataFrame([new_data_point])], ignore_index=True)
 
     # Filter data based on slider inputs
     filtered_data = data[
@@ -223,5 +257,29 @@ def predict_bale_yield(speed_value):
         html.H5(f"Predicted Bales per Hectare: {predicted_yield:.2f}")
     ])
 
+# Callback to handle file uploads
+@app.callback(
+    Output('output-data-upload', 'children'),
+    Input('upload-data', 'contents'),
+    State('upload-data', 'filename')
+)
+def upload_data(contents, filename):
+    if contents is not None:
+        content_type, content_string = contents.split(',')
+        decoded = base64.b64decode(content_string)
+        try:
+            df_uploaded = pd.read_csv(io.StringIO(decoded.decode('utf-8')))
+            if set(['Date', 'PickerSpeed', 'BalesPerHectare']).issubset(df_uploaded.columns):
+                df_uploaded['Date'] = pd.to_datetime(df_uploaded['Date'])
+                global data
+                data = pd.concat([data, df_uploaded], ignore_index=True)
+                return html.Div(['Data uploaded successfully.'])
+            else:
+                return html.Div(['Invalid file format. Please ensure the CSV contains Date, PickerSpeed, and BalesPerHectare columns.'])
+        except Exception as e:
+            return html.Div([f'Error processing file: {str(e)}'])
+    return html.Div()
+
 if __name__ == '__main__':
     app.run_server(debug=True)
+
