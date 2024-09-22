@@ -1,0 +1,4 @@
+import joblib
+
+# Load the model
+reg_model = joblib.load('reg_model.pkl')
