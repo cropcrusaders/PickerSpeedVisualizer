@@ -7,6 +7,7 @@ from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
+from sklearn.multioutput import MultiOutputRegressor
 import joblib
 
 # Data preparation
@@ -45,11 +46,11 @@ data = data.dropna(subset=['BalesPerHectare', 'MaxWrapEjectionSpeed', 'PickerSpe
 # Machine learning model
 def train_model():
     # Prepare features and target
-    X = data[['PickerSpeed', 'MaxWrapEjectionSpeed']]
-    y = data['BalesPerHectare']
+    X = data[['BalesPerHectare']]
+    y = data[['PickerSpeed', 'MaxWrapEjectionSpeed']]
 
     # Train the model
-    reg_model = LinearRegression()
+    reg_model = MultiOutputRegressor(LinearRegression())
     reg_model.fit(X, y)
 
     # Save the model
@@ -66,6 +67,22 @@ app.layout = dbc.Container([
     html.H1("PickerSpeedVisualizer"),
     dbc.Row([
         dbc.Col([
+            html.Label('Yield (Bales per Hectare) Range'),
+            dcc.RangeSlider(
+                id='bales-range',
+                min=round(data['BalesPerHectare'].min(), 1),
+                max=round(data['BalesPerHectare'].max(), 1),
+                step=0.1,
+                value=[
+                    round(data['BalesPerHectare'].min(), 1),
+                    round(data['BalesPerHectare'].max(), 1)
+                ],
+                marks={i: f'{i}' for i in np.arange(
+                    round(data['BalesPerHectare'].min(), 1),
+                    round(data['BalesPerHectare'].max() + 1, 1), 1
+                )},
+            ),
+            html.Br(),
             html.Label('Picker Speed Range (km/h)'),
             dcc.RangeSlider(
                 id='speed-range',
@@ -78,54 +95,28 @@ app.layout = dbc.Container([
                 ],
                 marks={i: f'{i}' for i in np.arange(
                     round(data['PickerSpeed'].min(), 1),
-                    round(data['PickerSpeed'].max(), 1) + 0.5, 0.5
+                    round(data['PickerSpeed'].max() + 0.5, 0.5), 0.5
                 )},
             ),
             html.Br(),
-            html.Label('Bales per Hectare Range'),
-            dcc.RangeSlider(
-                id='bales-range',
-                min=round(data['BalesPerHectare'].min(), 1),
-                max=round(data['BalesPerHectare'].max(), 1),
-                step=0.1,
-                value=[
-                    round(data['BalesPerHectare'].min(), 1),
-                    round(data['BalesPerHectare'].max(), 1)
-                ],
-                marks={i: f'{i}' for i in np.arange(
-                    round(data['BalesPerHectare'].min(), 1),
-                    round(data['BalesPerHectare'].max(), 1) + 1, 1
-                )},
-            ),
-            html.Br(),
-            html.H4("Predict Bale Yield"),
-            html.Label("Enter Picker Speed (km/h):"),
+            html.H4("Predict Speeds for Desired Yield"),
+            html.Label("Enter Desired Yield (Bales per Hectare):"),
             dcc.Input(
-                id='input-speed',
+                id='input-yield',
                 type='number',
-                value=data['PickerSpeed'].mean(),
-                min=data['PickerSpeed'].min(),
-                max=data['PickerSpeed'].max(),
-                step=0.1,
-            ),
-            html.Br(),
-            html.Label("Enter Max Wrap and Ejection Speed (km/h):"),
-            dcc.Input(
-                id='input-wrap-ejection-speed',
-                type='number',
-                value=data['MaxWrapEjectionSpeed'].mean(),
-                min=data['MaxWrapEjectionSpeed'].min(),
-                max=data['MaxWrapEjectionSpeed'].max(),
+                value=data['BalesPerHectare'].mean(),
+                min=data['BalesPerHectare'].min(),
+                max=data['BalesPerHectare'].max(),
                 step=0.1,
             ),
             html.Div(id='prediction-output'),
             html.Br(),
             html.H4("Add New Data"),
+            dcc.Input(id='input-bales-per-hectare', type='number', placeholder='Yield (Bales per Hectare)', min=0, step=0.1),
+            html.Br(),
             dcc.Input(id='input-picker-speed', type='number', placeholder='Picker Speed (km/h)', min=0, step=0.1),
             html.Br(),
             dcc.Input(id='input-max-wrap-ejection-speed', type='number', placeholder='Max Wrap and Ejection Speed (km/h)', min=0, step=0.1),
-            html.Br(),
-            dcc.Input(id='input-bales-per-hectare', type='number', placeholder='Yield (Bales per Hectare)', min=0, step=0.1),
             html.Br(),
             html.Button('Submit Data', id='submit-data-btn', n_clicks=0),
             html.Div(id='data-submit-output'),
@@ -187,7 +178,7 @@ def update_scatter(speed_range, bales_range, _):
     # Create the figure
     fig = go.Figure()
 
-    # Plot Picker Speed
+    # Plot Picker Speed vs Yield
     fig.add_trace(go.Scatter(
         x=filtered_data['BalesPerHectare'],
         y=filtered_data['PickerSpeed'],
@@ -196,7 +187,7 @@ def update_scatter(speed_range, bales_range, _):
         marker=dict(color='blue'),
     ))
 
-    # Plot Max Wrap and Ejection Speed
+    # Plot Max Wrap and Ejection Speed vs Yield
     fig.add_trace(go.Scatter(
         x=filtered_data['BalesPerHectare'],
         y=filtered_data['MaxWrapEjectionSpeed'],
@@ -215,16 +206,17 @@ def update_scatter(speed_range, bales_range, _):
         model = LinearRegression()
         X = filtered_data[['BalesPerHectare']]
         y = filtered_data[variable]
-        model.fit(X, y)
-        trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100)
-        trend_y = model.predict(trend_x.reshape(-1, 1))
-        fig.add_trace(go.Scatter(
-            x=trend_x,
-            y=trend_y,
-            mode='lines',
-            name=f'{name} Trend Line',
-            line=dict(color=color, dash='dash')
-        ))
+        if len(X) > 1:
+            model.fit(X, y)
+            trend_x = np.linspace(X['BalesPerHectare'].min(), X['BalesPerHectare'].max(), 100)
+            trend_y = model.predict(trend_x.reshape(-1, 1))
+            fig.add_trace(go.Scatter(
+                x=trend_x,
+                y=trend_y,
+                mode='lines',
+                name=f'{name} Trend Line',
+                line=dict(color=color, dash='dash')
+            ))
 
     fig.update_layout(
         title='Speeds vs. Yield (Bales per Hectare)',
@@ -241,15 +233,15 @@ def update_scatter(speed_range, bales_range, _):
 @app.callback(
     Output('data-submit-output', 'children'),
     Input('submit-data-btn', 'n_clicks'),
+    State('input-bales-per-hectare', 'value'),
     State('input-picker-speed', 'value'),
-    State('input-max-wrap-ejection-speed', 'value'),
-    State('input-bales-per-hectare', 'value')
+    State('input-max-wrap-ejection-speed', 'value')
 )
-def add_data_to_csv(n_clicks, picker_speed, max_wrap_ejection_speed, bales_per_hectare):
+def add_data_to_csv(n_clicks, bales_per_hectare, picker_speed, max_wrap_ejection_speed):
     if n_clicks > 0:
         try:
             if picker_speed is None or bales_per_hectare is None or max_wrap_ejection_speed is None:
-                return 'Please provide Picker Speed, Max Wrap and Ejection Speed, and Yield.'
+                return 'Please provide Yield, Picker Speed, and Max Wrap and Ejection Speed.'
 
             # Create a new row of data
             new_data = pd.DataFrame({
@@ -303,7 +295,7 @@ def update_histogram(active_tab, _):
     data = data.dropna(subset=['BalesPerHectare', 'MaxWrapEjectionSpeed', 'PickerSpeed'])
 
     fig = go.Figure()
-    # Plot histograms for available speed variables
+    # Plot histograms for available variables
     if 'PickerSpeed' in data.columns and data['PickerSpeed'].notnull().any():
         fig.add_trace(go.Histogram(
             x=data['PickerSpeed'],
@@ -333,16 +325,19 @@ def update_histogram(active_tab, _):
 @app.callback(
     Output('prediction-output', 'children'),
     [
-        Input('input-speed', 'value'),
-        Input('input-wrap-ejection-speed', 'value')
+        Input('input-yield', 'value')
     ]
 )
-def predict_bale_yield(speed_value, wrap_ejection_speed):
+def predict_speeds(yield_value):
     # Reload the model in case it has been retrained
     reg_model = joblib.load('reg_model.pkl')
-    predicted_yield = reg_model.predict([[speed_value, wrap_ejection_speed]])[0]
-    return html.Div([html.H5(f"Predicted Yield (Bales per Hectare): {predicted_yield:.2f}")])
+    predicted_speeds = reg_model.predict([[yield_value]])[0]
+    picker_speed = predicted_speeds[0]
+    max_wrap_ejection_speed = predicted_speeds[1]
+    return html.Div([
+        html.H5(f"Predicted Picker Speed (km/h): {picker_speed:.2f}"),
+        html.H5(f"Predicted Max Wrap and Ejection Speed (km/h): {max_wrap_ejection_speed:.2f}")
+    ])
 
 if __name__ == '__main__':
     app.run_server(debug=True)
-
